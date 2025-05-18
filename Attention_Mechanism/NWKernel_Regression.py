@@ -16,7 +16,6 @@ def show_heatmaps(
     figsize=(6, 6),
     cmap="Reds",
     save_path=None,
-    show=True,
 ):
     """
     Display heatmaps for attention weights or other matrices.
@@ -62,11 +61,6 @@ def show_heatmaps(
         # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
-        print(f"Heatmap saved to {save_path}")
-
-    # Show plot if requested
-    if show:
-        plt.show()
 
     # Close the figure to prevent memory leaks
     plt.close()
@@ -210,10 +204,7 @@ def visualize_training_process(
     plt.close()
 
 
-def train(width, epochs, n_train, n_test):
-    # Generate data
-    x_train, y_train, x_test, y_truth = generate_datasets(width, n_train, n_test)
-
+def train(width, epochs, n_train, n_test, x_train, y_train, x_test, y_truth):
     # Move data to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     x_train = x_train.to(device)
@@ -233,7 +224,21 @@ def train(width, epochs, n_train, n_test):
     record_loss = []
     record_epochs = []
 
-    plot_epochs = {10, 100, 1000, 5000, 10000, 20000, 50000}
+    plot_epochs = {
+        10,
+        100,
+        1000,
+        5000,
+        10000,
+        20000,
+        50000,
+        60000,
+        70000,
+        80000,
+        100000,
+        110000,
+        120000,
+    }
 
     for epoch in range(epochs):
         optimizer.zero_grad()
@@ -282,17 +287,97 @@ def train(width, epochs, n_train, n_test):
         xlabel="training inputs",
         ylabel="testing inputs",
         titles="HeatMaps for the final attention",
+        save_path="heatmap_params.png"
+    )
+
+
+def singleNWKernel(width, n_train, n_test, x_train, y_train, x_test, y_truth):
+    sigma = 1.0  # fixed kernel size
+    x_train_cpu = x_train.cpu()
+    y_train_cpu = y_train.cpu()
+    x_test_cpu = x_test.cpu()
+    y_truth_cpu = y_truth.cpu()
+
+    # compute attention weights
+    queries = x_test_cpu.unsqueeze(1)  # [n_test, 1]
+    keys = x_train_cpu.unsqueeze(0)  # [1, n_train]
+    diff = queries - keys  # [n_test, n_train]
+    attn = torch.softmax(-((diff / sigma) ** 2) / 2, dim=1)  # 固定sigma
+    y_hat = torch.matmul(attn, y_train_cpu)
+
+    plot_kernel_reg(
+        y_hat,
+        x_test_cpu,
+        y_truth_cpu,
+        x_train_cpu,
+        y_train_cpu,
+        save_path="img/kernel_regression_noparam.png",
+    )
+
+    def visualize_attention_noparam(
+        x_test,
+        x_train,
+        attn,
+        num_points=3,
+        save_path="img/visualize_attention_noparam.png",
+    ):
+        idxs = torch.linspace(0, len(x_test) - 1, num_points).long()
+        for i, idx in enumerate(idxs):
+            plt.figure()
+            plt.title(f"Attention for test x={x_test[idx].item():.2f}")
+            plt.plot(x_train, attn[idx].numpy(), "o-")
+            plt.xlabel("x_train")
+            plt.ylabel("Attention weight")
+            plt.savefig(f"img/visualize_attention_noparam_{i}.png")
+            plt.close()
+
+    visualize_attention_noparam(x_test_cpu, x_train_cpu, attn)
+
+    def visualize_kernel_shape_noparam(
+        sigma, save_path="img/kernelshape_visualize_noparam.png"
+    ):
+        diffs = torch.linspace(-5, 5, 100)
+        attn = torch.softmax(-(diffs / sigma).pow(2) / 2, dim=0)
+        plt.figure()
+        plt.title("Fixed Kernel Shape")
+        plt.plot(diffs.numpy(), attn.numpy())
+        plt.xlabel("x - center")
+        plt.ylabel("Kernel value")
+        plt.savefig(save_path)
+        plt.close()
+
+    visualize_kernel_shape_noparam(sigma)
+
+    show_heatmaps(
+        attn.unsqueeze(0).unsqueeze(0),
+        xlabel="training inputs",
+        ylabel="testing inputs",
+        titles="HeatMaps for the final attention (no param)",
+        save_path="img/heatmap_noparam.png",
+        show=False,
     )
 
 
 if __name__ == "__main__":
     # Parameters
-    width = 100.0
-    n_train = 10000
-    n_test = 10000
-    epochs = 60000
+    width = 20.0
+    n_train = 5000
+    n_test = 5000
+    epochs = 120001
 
     # Run tests
     x_train, y_train, x_test, y_truth = generate_datasets(width, n_train, n_test)
     # Train and evaluate
-    train(width, epochs, n_train, n_test)
+    print("For models with no parameters")
+    singleNWKernel(
+        width=width,
+        n_train=n_train,
+        n_test=n_test,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_truth=y_truth
+    )
+
+    print("For models with parameters")
+    train(width, epochs, n_train, n_test, x_train, y_train, x_test, y_truth)
