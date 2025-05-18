@@ -283,7 +283,7 @@ def train(width, epochs, n_train, n_test, x_train, y_train, x_test, y_truth):
         xlabel="training inputs",
         ylabel="testing inputs",
         titles="HeatMaps for the final attention",
-        save_path="heatmap_params.png"
+        save_path="img/heatmap_params.png"
     )
 
 
