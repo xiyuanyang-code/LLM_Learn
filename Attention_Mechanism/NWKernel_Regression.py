@@ -56,11 +56,7 @@ def show_heatmaps(
             if titles is not None:
                 axes[i, j].set_title(titles[j])
 
-    # Save figure if path is provided
-    if save_path:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
     # Close the figure to prevent memory leaks
     plt.close()
