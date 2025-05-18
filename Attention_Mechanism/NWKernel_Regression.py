@@ -354,15 +354,14 @@ def singleNWKernel(width, n_train, n_test, x_train, y_train, x_test, y_truth):
         ylabel="testing inputs",
         titles="HeatMaps for the final attention (no param)",
         save_path="img/heatmap_noparam.png",
-        show=False,
     )
 
 
 if __name__ == "__main__":
     # Parameters
     width = 20.0
-    n_train = 5000
-    n_test = 5000
+    n_train = 6000
+    n_test = 6000
     epochs = 120001
 
     # Run tests
