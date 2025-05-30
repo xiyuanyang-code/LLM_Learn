@@ -4,3 +4,11 @@ todo.md
 /data/
 /__pycache__/
 /img/
+
+
+# add evaluation
+evaluation/gsm8k-eval/.env
+evaluation/gsm8k-eval/img/
+evaluation/gsm8k-eval/data/
+evaluation/gsm8k-eval/results/
+evaluation/gsm8k-eval/src/__pycache__/
