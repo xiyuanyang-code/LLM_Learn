@@ -5,4 +5,5 @@
 **/img/
 **.env
 **/results
-
+models
+**/trainer_output
