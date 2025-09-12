@@ -2,14 +2,19 @@ import os
 import json
 import torch
 import pandas as pd
+import warnings
+import argparse
+
 
 from tqdm import tqdm
 from accelerate import Accelerator
 from datasets import load_dataset, Dataset
 from transformers import TrainingArguments, AutoTokenizer, AutoModelForCausalLM
+from trl import SFTTrainer, SFTConfig
 
-SYSYTEM_PROMPT = "You are a software engineer good at solving all kinds of problems."
+SYSTEM_PROMPT = "You are a software engineer good at solving all kinds of problems."
 USER_PROMPT = "The Task you need to solve is \n\n\n ============= TASK ============= \n{task}\n =======================\n\nPlease keep your response to approximately {num} words."
+warnings.filterwarnings("ignore")
 # accelerator = Accelerator()
 
 
@@ -63,15 +68,13 @@ def test_model_with_questions(
         print(f"\nModel Input {i}:\n{question}\nModel Output {i}:\n{response}\n")
 
 
-def load_model_and_tokenizer(model_name, use_gpu=False):
+def load_model_and_tokenizer(model_name, use_gpu=False, gpu_device="cuda"):
     # Load base model and tokenizer
+    global tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16)
-
-    # model, tokenizer = accelerator.prepare(model, tokenizer)
-
-    if use_gpu:
-        model.to("cuda")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, dtype=torch.bfloat16, device_map="auto"
+    )
 
     if not tokenizer.chat_template:
         tokenizer.chat_template = """{% for message in messages %}
@@ -105,18 +108,29 @@ def load_datasets(dataset_path):
     return train_dataset, test_dataset, query_data, corpus_data
 
 
-def test_before_post_training():
-    print(f"Loading model {model_path} before SFT process...")
+def formatting_func(examples):
+    formatted_texts = []
+    for q, c in zip(examples["User Prompt"], examples["Assistant Prompt"]):
+        messages = [{"role": "user", "content": q}, {"role": "assistant", "content": c}]
+        formatted_text = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=False
+        )
+        formatted_texts.append(formatted_text)
+    return {"text": formatted_texts}
 
-    # loading models
-    model, tokenizer = load_model_and_tokenizer(model_name=model_path, use_gpu=True)
-    print(f"using device: {model.device}")
 
-    # generating recording files
-    model_name = model_path.split("/")[-1]
-    os.makedirs(f"./output/stack_exchange/{model_name}", exist_ok=True)
-    output_path = f"./output/stack_exchange/{model_name}/answers.jsonl"
+def formatting_func_(example):
+    messages = [
+        {"role": "user", "content": example["User Prompt"]},
+        {"role": "assistant", "content": example["Assistant Prompt"]},
+    ]
+    formatted_text = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=False
+    )
+    return formatted_text
 
+
+def evaluate(model, tokenizer, output_path):
     # feat: support resumable download
     if not os.path.exists(output_path):
         with open(output_path, "w") as file:
@@ -164,7 +178,7 @@ def test_before_post_training():
                     model=model,
                     tokenizer=tokenizer,
                     user_message=user_prompt,
-                    system_message=SYSYTEM_PROMPT,
+                    system_message=SYSTEM_PROMPT,
                 )
             except Exception as e:
                 print(f"error: {e}")
@@ -181,19 +195,75 @@ def test_before_post_training():
             # load it to output path
             file.write(json.dumps(answer, ensure_ascii=False) + "\n")
             file.flush()
+    print(f"Evaluating Done! File saved to {output_path}")
 
 
-def SFT_train():
-    pass
+def test_before_post_training():
+    print(f"Loading model {model_path} before SFT process...")
+
+    # loading models
+    model, tokenizer = load_model_and_tokenizer(model_name=model_path, use_gpu=True)
+    print(f"using device: {model.device}")
+
+    # generating recording files
+    model_name = model_path.split("/")[-1]
+    os.makedirs(f"./output/stack_exchange/{model_name}", exist_ok=True)
+    output_path = f"./output/stack_exchange/{model_name}/answers.jsonl"
+
+    # evaluating
+    evaluate(model=model, tokenizer=tokenizer, output_path=output_path)
 
 
-def test_after_post_training():
-    pass
+def SFT_train(train_dataset_op):
+    model, tokenizer = load_model_and_tokenizer(
+        model_name=model_path, use_gpu=True, gpu_device="cuda:2"
+    )
+
+    # SFTTrainer config
+    sft_config = SFTConfig(
+        learning_rate=8e-5,  # Learning rate for training.
+        num_train_epochs=1,  #  Set the number of epochs to train the model.
+        per_device_train_batch_size=1,  # Batch size for each device (e.g., GPU) during training.
+        gradient_accumulation_steps=8,  # Number of steps before performing a backward/update pass to accumulate gradients.
+        gradient_checkpointing=False,  # Enable gradient checkpointing to reduce memory usage during training at the cost of slower training speed.
+        logging_steps=2,  # Frequency of logging training progress (log every 2 steps).
+    )
+
+    sft_trainer = SFTTrainer(
+        model=model,
+        args=sft_config,
+        train_dataset=train_dataset_op,
+        formatting_func=formatting_func_,
+        processing_class=tokenizer,
+    )
+
+    sft_trainer.train()
+
+    # training process done
+    print("Training process done! Start evaluating after SFT")
+
+    # generating recording files
+    model_name = model_path.split("/")[-1]
+    os.makedirs(f"./output/stack_exchange/{model_name}", exist_ok=True)
+    output_path = f"./output/stack_exchange/{model_name}/answers_sft.jsonl"
+
+    # evaluating
+    evaluate(model=model, tokenizer=tokenizer, output_path=output_path)
 
 
 if __name__ == "__main__":
+    # parsing argument
+    parser = argparse.ArgumentParser(
+        description="argument for SFT training and evaluation"
+    )
+    parser.add_argument("--eva", type=bool, default=False)
+    parser.add_argument("--tune", type=bool, default=False)
+    args = parser.parse_args()
+
     print("Demo for the sft tuning process.")
     dataset_path = "/GPFS/data/stack_exchange"
+    model_path = "./models/Qwen/Qwen2.5-7B"
+    print(f"Using default model: {model_path}")
 
     # loading datasets
     print("Loading datasets")
@@ -202,10 +272,41 @@ if __name__ == "__main__":
         dataset_path=dataset_path
     )
 
-    model_path = "./models/Qwen/Qwen2.5-7B"
-    print(f"Using default model: {model_path}")
+    train_data_list = []
 
-    print(f"Evaluation of model: {model_path} before post-training")
-    test_before_post_training()
+    query_data_indexed = query_data.set_index("_id")
+    corpus_data_indexed = corpus_data.set_index("_id")
+    train_pairs = pd.DataFrame(train_dataset)
 
-    # todo add SFT process
+    for _, row in train_pairs.iterrows():
+        query_id = row["query-id"]
+        corpus_id = row["corpus-id"]
+
+        try:
+            query_text = query_data_indexed.loc[query_id, "text"]
+            corpus_text = corpus_data_indexed.loc[corpus_id, "text"]
+            train_data_list.append(
+                {"User Prompt": query_text, "Assistant Prompt": corpus_text}
+            )
+        except KeyError as e:
+            print(f"Warning: ID {e} not found. Skipping this pair.")
+            continue
+
+    train_df = pd.DataFrame(train_data_list)
+    train_dataset_op = Dataset.from_pandas(train_df)
+
+    if args.eva is True:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+        print("device count:", torch.cuda.device_count())
+        print("Start Evaluating")
+        print(f"Evaluation of model: {model_path} before post-training")
+        test_before_post_training()
+
+    if args.tune is True:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+        print("device count:", torch.cuda.device_count())
+        print("Start finetuning using SFT")
+        # todo add more tuning methods in the future
+        SFT_train(train_dataset_op=train_dataset_op)
+
+    print("Evaluation and tuning process done.")
