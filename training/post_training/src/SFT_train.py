@@ -1,8 +1,16 @@
 import os
+import json
 import torch
+import pandas as pd
+
+from tqdm import tqdm
+from accelerate import Accelerator
 from datasets import load_dataset, Dataset
 from transformers import TrainingArguments, AutoTokenizer, AutoModelForCausalLM
-import pandas as pd
+
+SYSYTEM_PROMPT = "You are a software engineer good at solving all kinds of problems."
+USER_PROMPT = "The Task you need to solve is \n\n\n ============= TASK ============= \n{task}\n =======================\n\nPlease keep your response to approximately {num} words."
+# accelerator = Accelerator()
 
 
 def generate_responses(
@@ -10,7 +18,7 @@ def generate_responses(
     tokenizer,
     user_message=None,
     system_message=None,
-    max_new_tokens=300,
+    max_new_tokens=3000,
     full_message=None,
 ):
     # Format chat using tokenizer's chat template
@@ -28,8 +36,8 @@ def generate_responses(
         add_generation_prompt=True,
         enable_thinking=False,
     )
-
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
     # for inference stages, no gradient operations are needed.
     with torch.no_grad():
         outputs = model.generate(
@@ -58,7 +66,9 @@ def test_model_with_questions(
 def load_model_and_tokenizer(model_name, use_gpu=False):
     # Load base model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.bfloat16)
+
+    # model, tokenizer = accelerator.prepare(model, tokenizer)
 
     if use_gpu:
         model.to("cuda")
@@ -95,11 +105,89 @@ def load_datasets(dataset_path):
     return train_dataset, test_dataset, query_data, corpus_data
 
 
-def before_post_training(model_name):
+def test_before_post_training():
+    print(f"Loading model {model_path} before SFT process...")
 
-    print(f"Loading model {model_name} before SFT process...")
-    model, tokenizer = load_model_and_tokenizer(model_name=model_name, use_gpu=True)
+    # loading models
+    model, tokenizer = load_model_and_tokenizer(model_name=model_path, use_gpu=True)
+    print(f"using device: {model.device}")
 
+    # generating recording files
+    model_name = model_path.split("/")[-1]
+    os.makedirs(f"./output/stack_exchange/{model_name}", exist_ok=True)
+    output_path = f"./output/stack_exchange/{model_name}/answers.jsonl"
+
+    # feat: support resumable download
+    if not os.path.exists(output_path):
+        with open(output_path, "w") as file:
+            # create new output file
+            pass
+
+    with open(output_path, "r") as file:
+        current_lines = sum([1 for line in file])
+
+    print(f"Loading from {current_lines}")
+    total_lines = len(test_dataset)
+    with open(output_path, "a", encoding="utf-8") as file:
+        # generating test problems for models before tuning
+        for index, test_data in tqdm(
+            enumerate(test_dataset),
+            total=total_lines,
+            colour="CYAN",
+        ):
+            if index < current_lines:
+                # for resumable download
+                continue
+
+            answer = dict()
+            # get query data
+            query_id = test_data["query-id"]
+            query_row = query_data[query_data["_id"] == query_id]
+            query_text = query_row["text"].iloc[0]
+
+            # get corpus data
+            corpus_id = test_data["corpus-id"]
+            corpus_row = corpus_data[corpus_data["_id"] == corpus_id]
+            corpus_answer = str(corpus_row["text"].iloc[0])
+
+            # getting score
+            score = int(test_data["score"])
+
+            # loading prompt templates
+            user_prompt = USER_PROMPT.format(
+                task=query_text, num=len(query_text.split())
+            )
+
+            try:
+                # generating responses
+                model_response = generate_responses(
+                    model=model,
+                    tokenizer=tokenizer,
+                    user_message=user_prompt,
+                    system_message=SYSYTEM_PROMPT,
+                )
+            except Exception as e:
+                print(f"error: {e}")
+                model_response = "ERROR_MODEL_RESPONSE"
+
+            answer["index"] = index
+            answer["query-id"] = query_id
+            answer["query"] = query_text
+            answer["corpus-id"] = corpus_id
+            answer["full_score"] = score
+            answer["corpus-answer"] = corpus_answer
+            answer["model-answer"] = model_response
+
+            # load it to output path
+            file.write(json.dumps(answer, ensure_ascii=False) + "\n")
+            file.flush()
+
+
+def SFT_train():
+    pass
+
+
+def test_after_post_training():
     pass
 
 
@@ -109,10 +197,15 @@ if __name__ == "__main__":
 
     # loading datasets
     print("Loading datasets")
+    global train_dataset, test_dataset, query_data, corpus_data
     train_dataset, test_dataset, query_data, corpus_data = load_datasets(
         dataset_path=dataset_path
     )
 
-    # using default model: Qwen/Qwen2-VL-7B
-    model_name = "./models/Qwen/Qwen2-VL-7B"
-    print(f"Using default model: {model_name}")
+    model_path = "./models/Qwen/Qwen2.5-7B"
+    print(f"Using default model: {model_path}")
+
+    print(f"Evaluation of model: {model_path} before post-training")
+    test_before_post_training()
+
+    # todo add SFT process

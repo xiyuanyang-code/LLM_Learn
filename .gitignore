@@ -6,4 +6,5 @@
 **.env
 **/results
 models
+output
 **/trainer_output
