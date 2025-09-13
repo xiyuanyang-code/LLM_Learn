@@ -202,10 +202,12 @@ def DPO_training(model, tokenizer, dpo_ds):
 
     test_model_with_questions(model=model, tokenizer=tokenizer, questions=questions)
 
+    dpo_trainer.save_model("./models/Own/Qwen2.5-7B-DPO")
+
 
 def gen_dpo_dataset():
     # for this demo, we will use a identity dataset to optimize model behavior
-    raw_ds = load_dataset("./data/mrfakename/identity", split="train").select(range(1))
+    raw_ds = load_dataset("./data/mrfakename/identity", split="train")
     print(len(raw_ds))
     dpo_ds = raw_ds.map(build_dpo_chatml, remove_columns=raw_ds.column_names)
     print(f"Loading data successfully. Length: {len(dpo_ds)}")
@@ -213,7 +215,7 @@ def gen_dpo_dataset():
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
     # parsing argument
     parser = argparse.ArgumentParser(
         description="argument for SFT training and evaluation"
@@ -232,14 +234,14 @@ if __name__ == "__main__":
     model, tokenizer = load_model_and_tokenizer(model_name=model_path, use_gpu=True)
 
     if args.eval:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+        # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
         print("device count:", torch.cuda.device_count())
         print("Start Evaluating")
         response = test_before_post_training(model=model, tokenizer=tokenizer)
         print(response)
 
     if args.tune:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
+        # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
         print("device count:", torch.cuda.device_count())
         # loading data
         dpo_ds = gen_dpo_dataset()
