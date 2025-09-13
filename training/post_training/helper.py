@@ -6,7 +6,15 @@ from datasets import load_dataset, Dataset
 from transformers import TrainingArguments, AutoTokenizer, AutoModelForCausalLM
 import pandas as pd
 
-def generate_responses(model, tokenizer, user_message=None, system_message=None, max_new_tokens=300, full_message=None):
+
+def generate_responses(
+    model,
+    tokenizer,
+    user_message=None,
+    system_message=None,
+    max_new_tokens=300,
+    full_message=None,
+):
     # Format chat using tokenizer's chat template
     if full_message:
         messages = full_message
@@ -15,7 +23,7 @@ def generate_responses(model, tokenizer, user_message=None, system_message=None,
         if system_message:
             messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": user_message})
-        
+
     prompt = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
@@ -37,22 +45,28 @@ def generate_responses(model, tokenizer, user_message=None, system_message=None,
     response = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
     return response
-    
-def test_model_with_questions(model, tokenizer, questions, system_message=None, title="Model Output"):
+
+
+def test_model_with_questions(
+    model, tokenizer, questions, system_message=None, title="Model Output"
+):
     print(f"\n=== {title} ===")
     for i, question in enumerate(questions, 1):
         response = generate_responses(model, tokenizer, question, system_message)
         print(f"\nModel Input {i}:\n{question}\nModel Output {i}:\n{response}\n")
 
-def load_model_and_tokenizer(model_name, use_gpu = False):
-    
+
+def load_model_and_tokenizer(model_name, use_gpu=False):
+
     # Load base model and tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+    )
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    
+
     if use_gpu:
         model.to("cuda")
-    
+
     if not tokenizer.chat_template:
         tokenizer.chat_template = """{% for message in messages %}
                 {% if message['role'] == 'system' %}System: {{ message['content'] }}\n
@@ -60,27 +74,27 @@ def load_model_and_tokenizer(model_name, use_gpu = False):
                 {% elif message['role'] == 'assistant' %}Assistant: {{ message['content'] }} <|endoftext|>
                 {% endif %}
                 {% endfor %}"""
-    
+
     # Tokenizer config
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
-        
+
     return model, tokenizer
 
 
-
 def display_dataset(dataset):
-    # Visualize the dataset 
+    # Visualize the dataset
     rows = []
     for i in range(3):
         example = dataset[i]
-        user_msg = next(m['content'] for m in example['messages'] if m['role'] == 'user')
-        assistant_msg = next(m['content'] for m in example['messages'] if m['role'] == 'assistant')
-        rows.append({
-            'User Prompt': user_msg,
-            'Assistant Response': assistant_msg
-        })
-    
+        user_msg = next(
+            m["content"] for m in example["messages"] if m["role"] == "user"
+        )
+        assistant_msg = next(
+            m["content"] for m in example["messages"] if m["role"] == "assistant"
+        )
+        rows.append({"User Prompt": user_msg, "Assistant Response": assistant_msg})
+
     # Display as table
     df = pd.DataFrame(rows)
     print(df)
