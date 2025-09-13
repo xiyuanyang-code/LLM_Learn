@@ -49,9 +49,8 @@ def load_model_and_tokenizer(model_name, use_gpu = False):
     # Load base model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    
-    if use_gpu:
-        model.to("cuda")
+    # if use_gpu:
+    #     model.to("cuda")
     
     if not tokenizer.chat_template:
         tokenizer.chat_template = """{% for message in messages %}
@@ -84,4 +83,4 @@ def display_dataset(dataset):
     # Display as table
     df = pd.DataFrame(rows)
     pd.set_option('display.max_colwidth', None)  # Avoid truncating long strings
-    display(df)
+    # display(df)

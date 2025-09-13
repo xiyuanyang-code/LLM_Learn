@@ -261,7 +261,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("Demo for the sft tuning process.")
-    dataset_path = "/GPFS/data/stack_exchange"
+    dataset_path = "./data/stack_exchange"
     model_path = "./models/Qwen/Qwen2.5-7B"
     print(f"Using default model: {model_path}")
 
